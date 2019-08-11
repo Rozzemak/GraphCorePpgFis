@@ -41,13 +41,13 @@ namespace GraphCore.Source.Graph
         /// </summary>
         /// <param name="n"> Node count (Positions) </param>
         /// <param name="initParallelism"> Max degree of init parallelism </param>
-        public Graph(int n, int initParallelism = 4)
+        public Graph(int n, int initParallelism = 4, int randomSeed = 42)
         {
             OnInitBegin?.Invoke(this, EventArgs.Empty);
             this._n = n;
             _matrix = new double[n, n];
             _p = new ConcurrentBag<Position>();
-            _random = new Random(42);
+            _random = new Random(randomSeed);
             Parallel.For(0, _n, new ParallelOptions { MaxDegreeOfParallelism = initParallelism }, 
                 (i, state) => _p.Add(new Position(_random.NextDouble(), _random.NextDouble())));
             OnInitEnd?.Invoke(this, EventArgs.Empty);
@@ -81,14 +81,11 @@ namespace GraphCore.Source.Graph
         /// <summary>
         /// Inserts n-random edges into graph. (Parallel)
         /// </summary>
-        /// <param name="n"></param>
+        /// <param name="n">Edges count</param>
         public void InsertRandomEdges(int n)
         {
             OnEdgesInsertingBegin.Invoke(this, EventArgs.Empty);
             Parallel.For(0, n, (i, state) => InsertRandomEdge());
-            var i = 0;
-            // in parallel
-            Interlocked.Add(ref i, i);
             OnEdgesInsertingEnd.Invoke(this, EventArgs.Empty);
         }
 
