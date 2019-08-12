@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Text;
@@ -31,7 +32,7 @@ namespace GraphCore.Source.Graph
         /// <summary>
         /// Max possible vertices for non multi-vertices graph
         /// </summary>
-        private readonly int _maxVerticesCount;
+        private readonly ulong _maxVerticesCount;
         /// <summary>
         /// Parallel pool for GetVertices method
         /// </summary>
@@ -60,6 +61,10 @@ namespace GraphCore.Source.Graph
         /// Invoked after InsertRandomEdges invocation. (After method logic)
         /// </summary>
         public EventHandler<EdgesInsertEventArgs> OnEdgesInsertingEnd;
+        /// <summary>
+        /// Invoked after new set of vertices has been added. (Per worker group)
+        /// </summary>
+        public EventHandler<VerticesProgressEventArgs> OnVerticessAddition;
 
         /// <summary>
         /// Init Graph instance
@@ -67,15 +72,15 @@ namespace GraphCore.Source.Graph
         /// <param name="n"> Node count (Positions) </param>
         /// <param name="initParallelism"> Max degree of init parallelism </param>
         /// <param name="randomSeed"> Self explanatory</param>
-        public Graph([NotNull] uint n, int initParallelism = 4, int randomSeed = 42)
+        public Graph([NotNull] uint n, [Range(1, 255)] int initParallelism = 4, int randomSeed = 42)
         {
             OnInitBegin?.Invoke(this, EventArgs.Empty);
             this._n = (int)n;
             _matrix = new double[_n, _n];
             _p = new ConcurrentBag<Position>();
             _random = new Random(randomSeed);
-            _maxVerticesCount = _n * (_n - 1) / 2;
-            this._verticesParallelism = _matrix.GetLength(0);
+            _maxVerticesCount = ((ulong)_n * ((ulong)_n - 1) / 2);
+            this._verticesParallelism = initParallelism*2;
             this._initParallelism = initParallelism;
             Init(ref initParallelism);
             OnInitEnd?.Invoke(this, EventArgs.Empty);
@@ -88,14 +93,15 @@ namespace GraphCore.Source.Graph
         /// <param name="initParallelism"> Max degree of init parallelism </param>
         /// <param name="verticesParallelism">Vertices parallelism pool</param>
         /// <param name="randomSeed"> Self explanatory</param>
-        public Graph([NotNull] uint n, [NotNull] int initParallelism, [NotNull] int verticesParallelism, int randomSeed = 42)
+        public Graph([NotNull] uint n, [NotNull] [Range(1, 255)] int initParallelism,
+            [NotNull] [Range(1, 255)] int verticesParallelism, int randomSeed = 42)
         {
             OnInitBegin?.Invoke(this, EventArgs.Empty);
             this._n = (int)n;
             _matrix = new double[_n, _n];
             _p = new ConcurrentBag<Position>();
             _random = new Random(randomSeed);
-            _maxVerticesCount = _n * (_n - 1) / 2;
+            _maxVerticesCount = ((ulong)_n * ((ulong)_n - 1) / 2);
             this._verticesParallelism = verticesParallelism;
             this._initParallelism = initParallelism;
             Init(ref initParallelism);
@@ -103,6 +109,11 @@ namespace GraphCore.Source.Graph
 
         }
 
+        /// <summary>
+        /// Init of graph class for code reduction. (Lots of readonly variables, not too useful.)
+        /// Could be async though. Or at least invoked as task.
+        /// </summary>
+        /// <param name="initParallelism"></param>
         private void Init(ref int initParallelism)
         {
 #if DEBUG
@@ -110,7 +121,7 @@ namespace GraphCore.Source.Graph
                               "Operations will take LOT longer to finish. (Quadratic/Log time increase?)");
 #endif
             Parallel.For(0, _n, new ParallelOptions { MaxDegreeOfParallelism = initParallelism },
-                (i, state) => _p.Add(new Position(_random.NextDouble(), _random.NextDouble())));
+                i => _p.Add(new Position(_random.NextDouble(), _random.NextDouble())));
         }
 
         /// <summary>
@@ -138,7 +149,7 @@ namespace GraphCore.Source.Graph
         /// <param name="totalVertices"> Inserted vertices counter (For ParFor)</param>
         /// <param name="localThreadSafeRandom">To use local instance of random. (Thread-safe) </param>
         /// <param name="lockMatrix">Lock or not to lock graph matrix. False will produce few errors, but is generally much faster</param>
-        private int InsertRandomEdge(ref int totalVertices, bool localThreadSafeRandom = false, bool lockMatrix = false)
+        private int InsertRandomEdge(ref int totalVertices, bool localThreadSafeRandom = false, bool lockMatrix = true)
         {
             var insertedVertices = 0;
             var threadSafeRandom = localThreadSafeRandom ? new ThreadLocal<Random>(() => new Random(Guid.NewGuid().GetHashCode())) : null;
@@ -148,20 +159,24 @@ namespace GraphCore.Source.Graph
             {
                 // This is thread safe, but VERY SLOW
                 // if (VerticesCount >= _maxVerticesCount) break;
-                if (totalVertices >= _maxVerticesCount) break;
-                var fromVertex = random.Next(_n);
-                var toVertex = random.Next(_n);
-                if (fromVertex.Equals(toVertex))
-                    continue;
+                if (totalVertices >= (int) _maxVerticesCount) break;
                 if (lockMatrix)
                 {
                     lock (_matrix)
                     {
+                        var fromVertex = random.Next(_n);
+                        var toVertex = random.Next(_n);
+                        if (fromVertex.Equals(toVertex))
+                            continue;
                         if (CalculateVerticesDistance(ref insertedVertices, ref fromVertex, ref toVertex, ref random)) continue;
                     }
                 }
                 else
                 {
+                    var fromVertex = random.Next(_n);
+                    var toVertex = random.Next(_n);
+                    if (fromVertex.Equals(toVertex))
+                        continue;
                     if (CalculateVerticesDistance(ref insertedVertices, ref fromVertex, ref toVertex, ref random)) continue;
                 }
                 break;
@@ -200,9 +215,15 @@ namespace GraphCore.Source.Graph
             var args = new EdgesInsertEventArgs(n);
             // This is thread-safe, cannot be called in inner loops.
             var totalVertices = GetVerticesCountSafe();
-            OnEdgesInsertingBegin.Invoke(this, args);
-            if (n > _maxVerticesCount) n = _maxVerticesCount;
-            Parallel.For(0, n, () => 0, (pr, ad, s) => { return s += InsertRandomEdge(ref totalVertices); }, (poolResult) => Interlocked.Add(ref totalVertices, poolResult));
+            Task.Run(() => OnEdgesInsertingBegin.Invoke(this, args));
+            if (n > (int)_maxVerticesCount) n = (int)_maxVerticesCount;
+            Parallel.For(0, n, new ParallelOptions(){MaxDegreeOfParallelism = _verticesParallelism},
+                () => 0, (pr, ad, s) => Interlocked.Add(ref s, InsertRandomEdge(ref totalVertices)), 
+                poolResult =>
+                {
+                    Interlocked.Add(ref totalVertices, poolResult);
+                    OnVerticessAddition?.Invoke(this, new VerticesProgressEventArgs(totalVertices,  poolResult));
+                });
             OnEdgesInsertingEnd.Invoke(this, new EdgesInsertEventArgs(n, args.InvokeDateTime, totalVertices));
         }
 
@@ -227,7 +248,7 @@ namespace GraphCore.Source.Graph
 
         public string WriteMetaInfo()
         {
-            return $"Graph => Parallelism : (Init[{_verticesParallelism}], Vertices[{_initParallelism}]) , " +
+            return $"Graph => Parallelism : (Init[{_initParallelism}], Vertices[{_verticesParallelism}]) , " +
                    $"Nodes : [{_n}] , " +
                    $"Vertices : [{VerticesCount}]";
         }

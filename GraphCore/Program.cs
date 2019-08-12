@@ -12,28 +12,23 @@ namespace GraphCore
         {
             return Task.Run(() =>
             {
-                var g = new Graph(n: 7, initParallelism: 10,  10, randomSeed: 42);
-                Console.WriteLine("Graph init: (zeros) \n" + g);
+                // Highest sensible n as nodes: 10000
+                var g = new Graph(n: 8500, initParallelism: 1,  verticesParallelism:2, randomSeed: 42);
+                //Console.WriteLine("Graph init: (zeros) \n" + g);
                 Console.WriteLine(g.WriteMetaInfo());
-                g.OnEdgesInsertingBegin += OnEdgesInsertingBegin;
-                g.OnEdgesInsertingEnd += OnEdgesInsertingEnd;
-                g.InsertRandomEdges(20000);
-                Console.WriteLine("Graph with edges: \n" + g);
+                g.OnEdgesInsertingBegin += (sender, e) => Console.WriteLine($"Graph edges insert bgn: Count [{e?.VerticesCount}] : " +
+                                                                            $"BeginTime [{e?.InvokeDateTime}]");
+                g.OnEdgesInsertingEnd += (sender, e) => Console.WriteLine($"Graph edges insert end: Count [{e?.VerticesCount}] : " +
+                                                                                  $"Inserted [{e?.InsertedVerticesCount}] : " +
+                                                                                  $"BeginTime [{e?.InvokeDateTime}] : " +
+                                                                                  $"Timespan [{e?.FromInvokeTimespan}]");
+                // Comment for scarcer debug
+                g.OnVerticessAddition += (sender, e) =>  Console.WriteLine($"Progress by: [{e?.CurrentChange}] => [{e?.TotalVertices}]");
+                // Highest sensible n to insert: 100000
+                g.InsertRandomEdges(10000);
+                //Console.WriteLine("Graph with edges: \n" + g);
                 Console.WriteLine(g.WriteMetaInfo());
             });
-        }
-
-        private static void OnEdgesInsertingEnd(object sender, EdgesInsertEventArgs e)
-        {
-            Console.WriteLine($"Graph edges insert end: Count [{e.VerticesCount}] : " +
-                              $"Inserted [{e.InsertedVerticesCount}] : " +
-                              $"BeginTime [{e.InvokeDateTime}] : " +
-                              $"Timespan [{e.FromInvokeTimespan}]");
-        }
-
-        private static void OnEdgesInsertingBegin(object sender, EdgesInsertEventArgs e)
-        {
-            Console.WriteLine($"Graph edges insert bgn: Count [{e.VerticesCount}] : BeginTime [{e.InvokeDateTime}]");
         }
     }
 }
