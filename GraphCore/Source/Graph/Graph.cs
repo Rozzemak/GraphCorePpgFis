@@ -238,21 +238,23 @@ namespace GraphCore.Source.Graph
             OnEdgesInsertingEnd.Invoke(this, new EdgesInsertEventArgs(n, args.InvokeDateTime, totalVertices));
         }
 
-        public void SubscribeAndCompute(int edges, bool threadSafe = true)
+        public void SubscribeAndCompute(int edges, bool verbose = true, bool threadSafe = true)
         {
             Console.WriteLine(WriteMetaInfo());
-            OnEdgesInsertingBegin += (sender, e) => Console.WriteLine($"Graph edges insert bgn: Count [{e?.VerticesCount}] : " +
+            if(verbose)
+                OnEdgesInsertingBegin += (sender, e) => Console.WriteLine($"Graph edges insert bgn: Count [{e?.VerticesCount}] : " +
                                                                             $"BeginTime [{e?.InvokeDateTime}]");
             OnEdgesInsertingEnd += (sender, e) => Console.WriteLine($"Graph edges insert end: Count [{e?.VerticesCount}] : " +
                                                                           $"Inserted [{e?.InsertedVerticesCount}] : " +
                                                                           $"BeginTime [{e?.InvokeDateTime}] : " +
                                                                           $"Timespan [{e?.FromInvokeTimespan}]");
             // Comment for scarcer debug
-            OnVerticessAddition += (sender, e) => Console.WriteLine($"Progress by: [{e?.CurrentChange}] => [{e?.TotalVertices}]");
+            if(verbose)
+                OnVerticessAddition += (sender, e) => Console.WriteLine($"Progress by: [{e?.CurrentChange}] => [{e?.TotalVertices}]");
             // Highest sensible n to insert: 100000
             InsertRandomEdges(edges, threadSafe);
             //Console.WriteLine("Graph with edges: \n" + g);
-            Console.WriteLine(WriteMetaInfo());
+            Console.WriteLine(WriteMetaInfo() + "\n");
         }
 
         /// <summary>
@@ -276,7 +278,7 @@ namespace GraphCore.Source.Graph
 
         private string WriteMetaInfo()
         {
-            return $"Graph<{(typeof(TThreadSaveCollection).GetGenericArguments()[0]).Name}>" +
+            return $"Graph<{typeof(TThreadSaveCollection).Name}<{(typeof(TThreadSaveCollection).GetGenericArguments()[0]).Name}>>" +
                    $" => Parallelism : (Init[{_initParallelism}], Vertices[{_verticesParallelism}]) , " +
                    $"Nodes : [{_n}] , " +
                    $"Vertices : [{VerticesCount}]";
