@@ -11,6 +11,11 @@ using GraphCore.Source.Events.Args;
 
 namespace GraphCore.Source.Graph
 {
+    /// <summary>
+    /// Graph class
+    /// </summary>
+    /// <typeparam name="TThreadSaveCollection">Thread-safe collection of positions</typeparam>
+    /// <typeparam name="TPos">Position type</typeparam>
     public class Graph<TThreadSaveCollection, TPos> 
         where TThreadSaveCollection : IProducerConsumerCollection<TPos>, new()
         where TPos : IPosition<TPos>
@@ -215,7 +220,8 @@ namespace GraphCore.Source.Graph
         /// Shares par. pool with vertices getter  (Laziness on my part)
         /// </summary>
         /// <param name="n">Vertices count (Cannot be bigger than [n*(n-1)/2], and will be lowered to this value otherwise. </param>
-        public void InsertRandomEdges(int n)
+        /// <param name="threadSafe">Add edges to graph safely</param>
+        public void InsertRandomEdges(int n, bool threadSafe)
         {
             var args = new EdgesInsertEventArgs(n);
             // This is thread-safe, cannot be called in inner loops.
@@ -223,7 +229,7 @@ namespace GraphCore.Source.Graph
             Task.Run(() => OnEdgesInsertingBegin.Invoke(this, args));
             if (n > (int)_maxVerticesCount) n = (int)_maxVerticesCount;
             Parallel.For(0, n, new ParallelOptions(){MaxDegreeOfParallelism = _verticesParallelism},
-                () => 0, (pr, ad, s) => Interlocked.Add(ref s, InsertRandomEdge(ref totalVertices)), 
+                () => 0, (pr, ad, s) => Interlocked.Add(ref s, InsertRandomEdge(ref totalVertices, false, threadSafe)), 
                 poolResult =>
                 {
                     Interlocked.Add(ref totalVertices, poolResult);
@@ -232,7 +238,7 @@ namespace GraphCore.Source.Graph
             OnEdgesInsertingEnd.Invoke(this, new EdgesInsertEventArgs(n, args.InvokeDateTime, totalVertices));
         }
 
-        public void SubscribeAndCompute(int edges)
+        public void SubscribeAndCompute(int edges, bool threadSafe = true)
         {
             Console.WriteLine(WriteMetaInfo());
             OnEdgesInsertingBegin += (sender, e) => Console.WriteLine($"Graph edges insert bgn: Count [{e?.VerticesCount}] : " +
@@ -244,7 +250,7 @@ namespace GraphCore.Source.Graph
             // Comment for scarcer debug
             OnVerticessAddition += (sender, e) => Console.WriteLine($"Progress by: [{e?.CurrentChange}] => [{e?.TotalVertices}]");
             // Highest sensible n to insert: 100000
-            InsertRandomEdges(edges);
+            InsertRandomEdges(edges, threadSafe);
             //Console.WriteLine("Graph with edges: \n" + g);
             Console.WriteLine(WriteMetaInfo());
         }
