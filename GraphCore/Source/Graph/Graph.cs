@@ -11,7 +11,9 @@ using GraphCore.Source.Events.Args;
 
 namespace GraphCore.Source.Graph
 {
-    public class Graph
+    public class Graph<TThreadSaveCollection, TPos> 
+        where TThreadSaveCollection : IProducerConsumerCollection<TPos>, new()
+        where TPos : IPosition<TPos>
     {
         /// <summary>
         /// Node count
@@ -24,7 +26,7 @@ namespace GraphCore.Source.Graph
         /// <summary>
         /// Thread-safe collection of vertices
         /// </summary>
-        private readonly ConcurrentBag<Position> _p;
+        private readonly TThreadSaveCollection _p;
         /// <summary>
         /// Represents global vertices count in graph
         /// </summary>
@@ -72,17 +74,17 @@ namespace GraphCore.Source.Graph
         /// <param name="n"> Node count (Positions) </param>
         /// <param name="initParallelism"> Max degree of init parallelism </param>
         /// <param name="randomSeed"> Self explanatory</param>
-        public Graph([NotNull] uint n, [Range(1, 255)] int initParallelism = 4, int randomSeed = 42)
+        public Graph([NotNull] uint n, Action<int, TThreadSaveCollection, Random> addToCollection, [Range(1, 255)] int initParallelism = 4, int randomSeed = 42)
         {
             OnInitBegin?.Invoke(this, EventArgs.Empty);
             this._n = (int)n;
             _matrix = new double[_n, _n];
-            _p = new ConcurrentBag<Position>();
+            _p = new TThreadSaveCollection();
             _random = new Random(randomSeed);
             _maxVerticesCount = ((ulong)_n * ((ulong)_n - 1) / 2);
             this._verticesParallelism = initParallelism*2;
             this._initParallelism = initParallelism;
-            Init(ref initParallelism);
+            Init(ref initParallelism, addToCollection);
             OnInitEnd?.Invoke(this, EventArgs.Empty);
         }
 
@@ -90,21 +92,22 @@ namespace GraphCore.Source.Graph
         /// Init Graph instance
         /// </summary>
         /// <param name="n"> Node count (Positions) </param>
+        /// <param name="addToCollection"></param>
         /// <param name="initParallelism"> Max degree of init parallelism </param>
         /// <param name="verticesParallelism">Vertices parallelism pool</param>
         /// <param name="randomSeed"> Self explanatory</param>
-        public Graph([NotNull] uint n, [NotNull] [Range(1, 255)] int initParallelism,
+        public Graph([NotNull] uint n, Action<int, TThreadSaveCollection, Random> addToCollection, [NotNull] [Range(1, 255)] int initParallelism,
             [NotNull] [Range(1, 255)] int verticesParallelism, int randomSeed = 42)
         {
             OnInitBegin?.Invoke(this, EventArgs.Empty);
             this._n = (int)n;
             _matrix = new double[_n, _n];
-            _p = new ConcurrentBag<Position>();
+            _p = new TThreadSaveCollection();
             _random = new Random(randomSeed);
             _maxVerticesCount = ((ulong)_n * ((ulong)_n - 1) / 2);
             this._verticesParallelism = verticesParallelism;
             this._initParallelism = initParallelism;
-            Init(ref initParallelism);
+            Init(ref initParallelism, addToCollection);
             OnInitEnd?.Invoke(this, EventArgs.Empty);
 
         }
@@ -114,14 +117,16 @@ namespace GraphCore.Source.Graph
         /// Could be async though. Or at least invoked as task.
         /// </summary>
         /// <param name="initParallelism"></param>
-        private void Init(ref int initParallelism)
+        /// <param name="addToCollection"></param>
+        private void Init(ref int initParallelism, Action<int, TThreadSaveCollection, Random> addToCollection)
         {
+            //_p.Push(new Position(_random.NextDouble(), _random.NextDouble()))
 #if DEBUG
             Console.WriteLine("Project configuration mode is set to debug. " +
                               "Operations will take LOT longer to finish. (Quadratic/Log time increase?)");
 #endif
             Parallel.For(0, _n, new ParallelOptions { MaxDegreeOfParallelism = initParallelism },
-                i => _p.Add(new Position(_random.NextDouble(), _random.NextDouble())));
+                i => addToCollection(i, _p ,_random));
         }
 
         /// <summary>
@@ -227,6 +232,23 @@ namespace GraphCore.Source.Graph
             OnEdgesInsertingEnd.Invoke(this, new EdgesInsertEventArgs(n, args.InvokeDateTime, totalVertices));
         }
 
+        public void SubscribeAndCompute(int edges)
+        {
+            Console.WriteLine(WriteMetaInfo());
+            OnEdgesInsertingBegin += (sender, e) => Console.WriteLine($"Graph edges insert bgn: Count [{e?.VerticesCount}] : " +
+                                                                            $"BeginTime [{e?.InvokeDateTime}]");
+            OnEdgesInsertingEnd += (sender, e) => Console.WriteLine($"Graph edges insert end: Count [{e?.VerticesCount}] : " +
+                                                                          $"Inserted [{e?.InsertedVerticesCount}] : " +
+                                                                          $"BeginTime [{e?.InvokeDateTime}] : " +
+                                                                          $"Timespan [{e?.FromInvokeTimespan}]");
+            // Comment for scarcer debug
+            OnVerticessAddition += (sender, e) => Console.WriteLine($"Progress by: [{e?.CurrentChange}] => [{e?.TotalVertices}]");
+            // Highest sensible n to insert: 100000
+            InsertRandomEdges(edges);
+            //Console.WriteLine("Graph with edges: \n" + g);
+            Console.WriteLine(WriteMetaInfo());
+        }
+
         /// <summary>
         /// String override of Graph class.
         /// </summary>
@@ -246,9 +268,10 @@ namespace GraphCore.Source.Graph
             return s.ToString();
         }
 
-        public string WriteMetaInfo()
+        private string WriteMetaInfo()
         {
-            return $"Graph => Parallelism : (Init[{_initParallelism}], Vertices[{_verticesParallelism}]) , " +
+            return $"Graph<{(typeof(TThreadSaveCollection).GetGenericArguments()[0]).Name}>" +
+                   $" => Parallelism : (Init[{_initParallelism}], Vertices[{_verticesParallelism}]) , " +
                    $"Nodes : [{_n}] , " +
                    $"Vertices : [{VerticesCount}]";
         }
